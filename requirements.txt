@@ -1,0 +1,11 @@
+# Scraping
+selenium>=4.20
+beautifulsoup4>=4.12
+
+# Dados
+pandas>=2.0
+numpy>=1.26
+duckdb>=1.0
+
+# Utilidades
+lxml>=5.0

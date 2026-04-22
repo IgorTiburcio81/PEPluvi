@@ -10,14 +10,15 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, UnexpectedAlertPresentException
+from selenium.webdriver.support import expected_conditions as EC
 from io import StringIO
 
 BASE_URL = "http://old.apac.pe.gov.br/meteorologia/monitoramento-pluvio.php"
-OUTPUT_DIR = Path("dados_apac_recife")
-TEMP_DIR = OUTPUT_DIR / "arquivos_anuais"
-LOG_FILE = OUTPUT_DIR / "scraper.log"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+OUTPUT_DIR = PROJECT_ROOT / "data" / "raw"
+LOG_FILE = Path(__file__).resolve().parent / "scraper.log"
 
-TEMP_DIR.mkdir(parents=True, exist_ok=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -112,13 +113,12 @@ class ScraperAPAC:
             raise
 
     def pesquisar_e_extrair(self, ano_esperado: int) -> pd.DataFrame:
-        """Pesquisa e extrai dados, validando se o ano retornado corresponde ao solicitado."""
         try:
             # 1. Clique no botão Pesquisar
             btn = self.driver.find_element(By.ID, "btPesquisaPluvio")
             self.driver.execute_script("arguments[0].click();", btn)
-
-            # 2. Lida com Alertas do site (ex: "Informe a Data Inicial!")
+            
+            # 2. Lida com Alertas do site
             try:
                 WebDriverWait(self.driver, 3).until(EC.alert_is_present())
                 alerta = self.driver.switch_to.alert
@@ -128,57 +128,55 @@ class ScraperAPAC:
             except TimeoutException:
                 pass
 
-            # 3. Espera a tabela carregar linhas de dados reais
-            try:
-                self.wait.until(EC.presence_of_element_located((By.CLASS_NAME, "scGridFieldOdd")))
-                log.info("  Dados detectados na tabela.")
-            except TimeoutException:
-                log.warning("  Timeout: A tabela não apresentou dados para este período.")
-                return pd.DataFrame()
+            # 3. ESPERA INTELIGENTE (Smart Polling)
+            tempo_maximo = 120
+            inicio = time.time()
+            
+            while time.time() - inicio < tempo_maximo:
+                try:
+                    html = self.driver.page_source
+                    soup = BeautifulSoup(html, "html.parser")
+                    tabela = soup.find("table", {"id": "tbMonPluvio"})
+                    
+                    if tabela:
+                        html_io = StringIO(str(tabela))
+                        # header=0 garante que ele vai achar a coluna "Código"
+                        dfs = pd.read_html(html_io, decimal=",", thousands=".", header=0)
+                        
+                        if dfs:
+                            df = dfs[0]
+                            # Verifica se a tabela já possui a coluna Mês/Ano
+                            if "Mês/Ano" in df.columns:
+                                # Transforma a coluna em texto contínuo
+                                texto_datas = " ".join(df["Mês/Ano"].dropna().astype(str))
+                                
+                                #só aceita se o ano pedido aparece na tabela
+                                if str(ano_esperado) in texto_datas:
+                                    
+                                    # Limpeza de colunas
+                                    df.columns = [str(c).strip() for c in df.columns]
+                                    colunas_presentes = [col for col in COLUNAS_ESPERADAS if col in df.columns]
+                                    if len(colunas_presentes) < len(COLUNAS_ESPERADAS):
+                                        return pd.DataFrame()
 
-            time.sleep(2)  # Respiro para o DOM estabilizar
+                                    # Limpeza de dados inválidos
+                                    df["Código"] = pd.to_numeric(df["Código"], errors="coerce")
+                                    df = df.dropna(subset=["Código"])
+                                    df["Código"] = df["Código"].astype(int)
 
-            # 4. Extrai o HTML da tabela específica
-            html = self.driver.page_source
-            soup = BeautifulSoup(html, "html.parser")
-            tabela = soup.find("table", {"id": "tbMonPluvio"})
+                                    if df.empty:
+                                        return pd.DataFrame()
 
-            if not tabela:
-                log.warning("  Tabela 'tbMonPluvio' não encontrada no HTML.")
-                return pd.DataFrame()
+                                    # Passa na trava final de segurança
+                                    df = self._validar_ano(df, ano_esperado)
+                                    return df
+                except Exception:
+                    pass 
+                
+                time.sleep(1) # Aguarda 1 segundo antes de olhar a tela de novo
 
-            html_io = StringIO(str(tabela))
-            dfs = pd.read_html(html_io, decimal=",", thousands=".")
-
-            if not dfs:
-                log.warning("  pd.read_html não retornou DataFrames.")
-                return pd.DataFrame()
-
-            df = dfs[0]
-
-            # 5. VALIDAÇÃO DE COLUNAS — rejeita tabelas que são lixo (HTML/JS do site)
-            df.columns = [str(c).strip() for c in df.columns]
-            colunas_presentes = [col for col in COLUNAS_ESPERADAS if col in df.columns]
-            if len(colunas_presentes) < len(COLUNAS_ESPERADAS):
-                log.warning(
-                    f"  Tabela não tem colunas esperadas {COLUNAS_ESPERADAS}. "
-                    f"Colunas encontradas: {list(df.columns[:8])}. Descartando."
-                )
-                return pd.DataFrame()
-
-            # 6. Filtra apenas linhas com Código numérico (remove cabeçalhos duplicados)
-            df["Código"] = pd.to_numeric(df["Código"], errors="coerce")
-            df = df.dropna(subset=["Código"])
-            df["Código"] = df["Código"].astype(int)
-
-            if df.empty:
-                log.warning("  Nenhuma linha com Código numérico válido.")
-                return pd.DataFrame()
-
-            # 7. VALIDAÇÃO DO ANO — verifica se Mês/Ano corresponde ao ano solicitado
-            df = self._validar_ano(df, ano_esperado)
-
-            return df
+            log.warning(f"  Timeout: O site não carregou dados de {ano_esperado} a tempo ou o ano está vazio.")
+            return pd.DataFrame()
 
         except Exception as e:
             log.warning(f"  Erro na extração: {e}")
@@ -208,26 +206,17 @@ class ScraperAPAC:
 
         # Contagem de anos encontrados para log
         anos_encontrados = df["_ano_extraido"].dropna().unique()
-        if len(anos_encontrados) > 0:
-            anos_str = ", ".join(str(int(a)) for a in sorted(anos_encontrados))
-            if ano_esperado not in anos_encontrados:
-                log.warning(
-                    f"  INCONSISTÊNCIA: Ano solicitado={ano_esperado}, "
-                    f"mas dados retornados são de [{anos_str}]. Descartando TODOS."
-                )
-                return pd.DataFrame()
+        if len(anos_encontrados) == 0:
+            log.warning(f"  Não foi possível identificar o formato de ano na coluna 'Mês/Ano'. Descartando.")
+            return pd.DataFrame() # Rejeita!
 
-            # Filtra mantendo APENAS linhas do ano correto
-            linhas_antes = len(df)
-            df = df[df["_ano_extraido"] == ano_esperado]
-            linhas_removidas = linhas_antes - len(df)
-            if linhas_removidas > 0:
-                log.info(
-                    f"  Validação: {linhas_removidas} linhas de outros anos removidas "
-                    f"(mantidas {len(df)} do ano {ano_esperado})."
-                )
+        # Se achou os anos, continua a lógica original
+        anos_str = ", ".join(str(int(a)) for a in sorted(anos_encontrados))
+        if ano_esperado not in anos_encontrados:
+            log.warning(f"  INCONSISTÊNCIA: Ano esperado={ano_esperado}, vieram [{anos_str}]. Descartando TODOS.")
+            return pd.DataFrame()
 
-        # Remove a coluna auxiliar
+        df = df[df["_ano_extraido"] == ano_esperado]
         df = df.drop(columns=["_ano_extraido"])
         return df
 
@@ -235,9 +224,7 @@ class ScraperAPAC:
         self.driver.quit()
 
 
-# ─────────────────────────────────────────────
 # Main
-# ─────────────────────────────────────────────
 def main():
     ano_inicio = 1961
     ano_fim = date.today().year
@@ -247,14 +234,14 @@ def main():
         for cod_id, nome_meso in MESORREGIOES.items():
             log.info(f"\n>>> PROCESSANDO: {nome_meso} (ID: {cod_id})")
 
-            # Recarregar a página para cada mesorregião — evita estado contaminado
+            # Recarregar a página para cada mesorregião
             scraper.acessar_pagina()
 
-            # Seleciona a mesorregião UMA VEZ (antes do loop de anos)
+            # Seleciona a mesorregião UMA VEZ
             scraper.selecionar_mesorregiao(cod_id)
 
             for ano in range(ano_inicio, ano_fim + 1):
-                arquivo_csv = TEMP_DIR / f"{nome_meso}_{ano}.csv"
+                arquivo_csv = OUTPUT_DIR / f"{nome_meso}_{ano}.csv"
                 if arquivo_csv.exists():
                     continue
 
@@ -262,10 +249,10 @@ def main():
                 d_fim = f"31/12/{ano}" if ano < ano_fim else date.today().strftime("%d/%m/%Y")
 
                 try:
-                    # ORDEM CORRETA: mesorregião já selecionada, agora define datas
+                    # mesorregião já selecionada, agora define datas
                     scraper.definir_datas(d_ini, d_fim)
 
-                    # Pesquisa e extrai COM validação do ano
+                    # Pesquisa e extrai validação do ano
                     df = scraper.pesquisar_e_extrair(ano_esperado=ano)
 
                     if not df.empty:
@@ -276,7 +263,7 @@ def main():
                     else:
                         log.warning(f"  [!] {ano}: Sem dados válidos para este ano.")
 
-                    time.sleep(1)  # Respiro entre anos
+                    time.sleep(1)  
 
                 except Exception as e:
                     log.error(f"Falha no ano {ano}: {e}")
