@@ -228,7 +228,7 @@ class ScraperAPAC:
 def main():
     ano_inicio = 1961
     ano_fim = date.today().year
-    scraper = ScraperAPAC(headless=False)
+    scraper = ScraperAPAC(headless=True)
 
     try:
         for cod_id, nome_meso in MESORREGIOES.items():

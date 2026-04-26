@@ -4,6 +4,7 @@ from pathlib import Path
 import duckdb
 from datetime import datetime
 import numpy as np
+import sys
 
 # Configurações
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -26,10 +27,16 @@ def executar_etl():
     # Conecta (ou cria, se não existir) o arquivo do banco de dados
     conn = duckdb.connect(DB_PATH)
     
-    arquivos = list(INPUT_DIR.glob("*.csv"))
+    padrao_busca = "*.csv"
+    if len(sys.argv) > 1:
+        ano = sys.argv[1]
+        padrao_busca = f"*_{ano}.csv"
+        print(f"Modo Incremental: Buscando apenas arquivos do ano {ano}...")
+        
+    arquivos = list(INPUT_DIR.glob(padrao_busca))
     
     if not arquivos:
-        print(f"Nenhum arquivo CSV encontrado em {INPUT_DIR}")
+        print(f"Nenhum arquivo CSV encontrado para o padrão {padrao_busca}")
         return
 
     print(f"Processando {len(arquivos)} arquivos para o DuckDB...")
@@ -73,7 +80,7 @@ def executar_etl():
                 value_name='chuva'
             )
 
-            # Limpeza de chuva ('-' = sem medição -> NaN, não zero)
+            # Limpeza de chuva
             df_long['chuva'] = (df_long['chuva'].astype(str)
                                 .str.strip()
                                 .replace(['-', '', 'nan', 'None'], pd.NA)

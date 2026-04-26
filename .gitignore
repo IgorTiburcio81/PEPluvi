@@ -23,3 +23,15 @@ build/
 # OS
 .DS_Store
 Thumbs.db
+
+# Airflow / Astronomer (Astro CLI)
+logs/
+airflow.db
+airflow.cfg
+.astro/
+
+# DAG de exemplo do Astro
+dags/exampledag.py
+
+# Logs de execução do scraper
+scraping/scraper.log
