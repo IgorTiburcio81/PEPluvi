@@ -11,7 +11,7 @@ duckdb>=1.0
 lxml>=5.0
 
 # Orquestração (Airflow via Astro CLI)
-apache-airflow>=2.9
+# apache-airflow>=2.9
 
 # Configurações
 python-dotenv>=1.0.0

@@ -1,5 +1,5 @@
 # Dados locais (não versionados)
-data/
+include/data/
 
 # Ambiente virtual
 venv/
@@ -38,7 +38,7 @@ tests/dags/
 dags/exampledag.py
 
 # Logs de execução do scraper
-pipeline/extract/scraper.log
+include/pipeline/extract/scraper.log
 
 # dbt
 target/

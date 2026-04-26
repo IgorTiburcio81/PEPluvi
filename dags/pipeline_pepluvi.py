@@ -10,7 +10,7 @@ default_args = {
     'retry_delay': timedelta(minutes=5),
 }
 
-PROJETO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PROJETO_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'include')
 
 with DAG(
     'pipeline_pepluvi',
