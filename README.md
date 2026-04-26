@@ -22,10 +22,10 @@ O pipeline faz scraping do site da APAC via Selenium, valida a integridade dos C
 
 | Etapa | Script | Descrição |
 |---|---|---|
-| **Scraping** | `scraping/scraping_apac.py` | Coleta automatizada do site da APAC via Selenium, por mesorregião e ano |
-| **Validação** | `scraping/valid_data.py` | Verifica se o ano no nome do CSV bate com o conteúdo interno |
-| **Ingestão** | `ingestion/ingest_duckdb.py` | Lê os CSVs, faz unpivot dia→linha e carrega no DuckDB |
-| **Orquestração** | `dags/dag_pipeline_pepluvi.py` | DAG Airflow carga incremental diária (D-1) às 06h UTC |
+| **Scraping** | `pipeline/extract/scraping_apac.py` | Coleta automatizada do site da APAC via Selenium, por mesorregião e ano |
+| **Validação** | `pipeline/extract/valid_data.py` | Verifica se o ano no nome do CSV bate com o conteúdo interno |
+| **Ingestão** | `pipeline/load/ingest_duckdb.py` | Lê os CSVs, faz unpivot dia→linha e carrega no DuckDB |
+| **Orquestração** | `dags/pipeline_pepluvi.py` | DAG Airflow carga incremental diária (D-1) às 06h UTC |
 
 ---
 
@@ -83,23 +83,23 @@ astro dev start
 
 ```bash
 # 1. Coletar dados da APAC
-python scraping/scraping_apac.py
+make extract
 
 # 2. Validar os CSVs
-python scraping/valid_data.py
+python pipeline/extract/valid_data.py
 
 # 3. Ingerir no DuckDB (carga completa)
-python ingestion/ingest_duckdb.py
+make load
 
 # 3b. Ingerir apenas um ano específico (carga incremental)
-python ingestion/ingest_duckdb.py 2026
+python pipeline/load/ingest_duckdb.py 2026
 ```
 
 > ⚠️ A carga histórica completa (1961 → hoje, todas as mesorregiões) leva várias horas. O scraper salva um CSV por ano/mesorregião em `data/raw/`, então se cair, basta rodar de novo — os já coletados são pulados.
 
 ### Execução orquestrada (Airflow)
 
-Após subir o Airflow com `astro dev start`, a DAG `dag_pipeline_pepluvi` roda automaticamente todos os dias às **06h UTC**, executando a carga incremental do ano corrente.
+Após subir o Airflow com `astro dev start`, a DAG `pipeline_pepluvi` roda automaticamente todos os dias às **06h UTC**, executando a carga incremental do ano corrente.
 
 O banco é criado/atualizado em `data/pepluvi.duckdb`.
 
@@ -109,19 +109,22 @@ O banco é criado/atualizado em `data/pepluvi.duckdb`.
 
 ```
 PEPluvi/
+├── pipeline/
+│   ├── extract/
+│   │   ├── scraping_apac.py      # scraper Selenium
+│   │   └── valid_data.py         # validação dos CSVs
+│   └── load/
+│       └── ingest_duckdb.py      # ETL CSVs → DuckDB
+├── transform/                    # modelagem dbt (Silver → Gold)
+├── config/                       # constantes (settings.py)
+├── docs/                         # ADRs e Runbook
 ├── dags/
-│   └── dag_pipeline_pepluvi.py   # DAG Airflow (carga incremental diária)
-├── scraping/
-│   ├── scraping_apac.py          # scraper Selenium
-│   └── valid_data.py             # validação dos CSVs
-├── ingestion/
-│   └── ingest_duckdb.py          # ETL CSVs → DuckDB
+│   └── pipeline_pepluvi.py       # DAG Airflow (carga incremental diária)
 ├── data/                         # ⚠️ NÃO versionado (.gitignore)
 │   ├── raw/                      # CSVs brutos por mesorregião/ano
 │   └── pepluvi.duckdb            # banco OLAP local
-├── include/                      # recursos compartilhados (Astro)
-├── plugins/                      # plugins Airflow customizados
-├── tests/                        # testes de integridade das DAGs
+├── Makefile                      # atalhos de execução
+├── pyproject.toml                # dependências e linting (Ruff)
 ├── Dockerfile                    # imagem customizada (Chrome p/ Selenium)
 ├── airflow_settings.yaml         # configuração local do Airflow
 ├── packages.txt                  # pacotes apt do container Astro

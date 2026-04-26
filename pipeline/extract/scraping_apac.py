@@ -12,10 +12,14 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, UnexpectedAlertPresentException
 from selenium.webdriver.support import expected_conditions as EC
 from io import StringIO
+import sys
+import os
 
-BASE_URL = "http://old.apac.pe.gov.br/meteorologia/monitoramento-pluvio.php"
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-OUTPUT_DIR = PROJECT_ROOT / "data" / "raw"
+# Adiciona o diretório raiz ao PYTHONPATH
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from config.settings import BASE_URL, RAW_DIR
+
+OUTPUT_DIR = RAW_DIR
 LOG_FILE = Path(__file__).resolve().parent / "scraper.log"
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

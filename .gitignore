@@ -38,4 +38,8 @@ tests/dags/
 dags/exampledag.py
 
 # Logs de execução do scraper
-scraping/scraper.log
+pipeline/extract/scraper.log
+
+# dbt
+target/
+dbt_packages/

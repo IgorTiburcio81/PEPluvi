@@ -1,9 +1,14 @@
 import pandas as pd
 from pathlib import Path
 import re
+import sys
+import os
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DIR_DADOS = PROJECT_ROOT / "data" / "raw"
+# Adiciona o diretório raiz ao PYTHONPATH
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from config.settings import RAW_DIR
+
+DIR_DADOS = RAW_DIR
 
 def valid_data(caminho_arquivo):
     try:

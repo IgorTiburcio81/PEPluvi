@@ -1,0 +1,28 @@
+[project]
+name = "pepluvi"
+version = "0.1.0"
+description = "Pipeline ETL para dados pluviométricos de Pernambuco"
+requires-python = ">=3.10"
+dependencies = [
+    "pandas",
+    "selenium",
+    "beautifulsoup4",
+    "duckdb",
+    "python-dotenv",
+    "apache-airflow",
+]
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "W"]
+ignore = ["E501"]
+exclude = [
+    ".git",
+    "venv",
+    ".env",
+    ".astro",
+    "transform",
+]
+
+[tool.mypy]
+ignore_missing_imports = true

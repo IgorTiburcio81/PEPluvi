@@ -5,12 +5,14 @@ import duckdb
 from datetime import datetime
 import numpy as np
 import sys
+import os
+
+# Adiciona o diretório raiz ao PYTHONPATH
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from config.settings import RAW_DIR, DB_PATH
 
 # Configurações
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-INPUT_DIR = PROJECT_ROOT / "data" / "raw"
-
-DB_PATH = str(PROJECT_ROOT / "data" / "pepluvi.duckdb")
+INPUT_DIR = RAW_DIR
 
 def tratar_mes_ano(mes_ano_str):
     meses = {

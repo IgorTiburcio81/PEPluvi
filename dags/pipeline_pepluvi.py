@@ -13,7 +13,7 @@ default_args = {
 PROJETO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 with DAG(
-    'dag_pipeline_pepluvi',
+    'pipeline_pepluvi',
     default_args=default_args,
     description='DAG para o pipeline PEPluvi (Carga Incremental D-1)',
     schedule='0 6 * * *',
@@ -29,12 +29,12 @@ with DAG(
 
     task_scraping = BashOperator(
         task_id='scraping',
-        bash_command=f'cd {PROJETO_DIR} && python scraping/scraping_apac.py'
+        bash_command=f'cd {PROJETO_DIR} && python pipeline/extract/scraping_apac.py'
     )
 
     task_validacao = BashOperator(
         task_id='validacao_integridade',
-        bash_command=f'cd {PROJETO_DIR} && python scraping/valid_data.py'
+        bash_command=f'cd {PROJETO_DIR} && python pipeline/extract/valid_data.py'
     )
 
     task_limpeza_duckdb = BashOperator(
@@ -44,7 +44,7 @@ with DAG(
 
     task_ingestao = BashOperator(
         task_id='ingestao_duckdb',
-        bash_command=f'cd {PROJETO_DIR} && python ingestion/ingest_duckdb.py 2026'
+        bash_command=f'cd {PROJETO_DIR} && python pipeline/load/ingest_duckdb.py 2026'
     )
 
     task_limpa_csv >> task_scraping >> task_validacao >> task_limpeza_duckdb >> task_ingestao
