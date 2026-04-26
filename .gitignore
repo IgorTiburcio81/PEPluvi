@@ -29,6 +29,10 @@ logs/
 airflow.db
 airflow.cfg
 .astro/
+.dockerignore
+airflow_settings.yaml
+packages.txt
+tests/dags/
 
 # DAG de exemplo do Astro
 dags/exampledag.py
