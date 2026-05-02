@@ -29,16 +29,16 @@ def executar_etl():
     # Conecta (ou cria, se não existir) o arquivo do banco de dados
     conn = duckdb.connect(DB_PATH)
     
-    padrao_busca = "*.csv"
+    padrao_busca = "*.parquet"
     if len(sys.argv) > 1:
         ano = sys.argv[1]
-        padrao_busca = f"*_{ano}.csv"
+        padrao_busca = f"*_{ano}.parquet"
         print(f"Modo Incremental: Buscando apenas arquivos do ano {ano}...")
         
     arquivos = list(INPUT_DIR.glob(padrao_busca))
     
     if not arquivos:
-        print(f"Nenhum arquivo CSV encontrado para o padrão {padrao_busca}")
+        print(f"Nenhum arquivo Parquet encontrado para o padrão {padrao_busca}")
         return
 
     print(f"Processando {len(arquivos)} arquivos para o DuckDB...")
@@ -48,19 +48,14 @@ def executar_etl():
     for file_path in arquivos:
         try:
             # Extrai o ano esperado do nome do arquivo
-            ano_match = re.search(r'_(\d{4})\.csv$', file_path.name)
+            ano_match = re.search(r'_(\d{4})\.parquet$', file_path.name)
             ano_esperado = int(ano_match.group(1)) if ano_match else None
 
-            # Tenta ler com header na primeira linha
-            df_raw = pd.read_csv(file_path, header=0)
+            # Lê o arquivo Parquet (tipos já preservados)
+            df_raw = pd.read_parquet(file_path)
             df_raw.columns = [str(c).strip() for c in df_raw.columns]
 
-            # Se as colunas esperadas não estão na linha 0, tenta header=1
-            if 'Código' not in df_raw.columns and 'Posto' not in df_raw.columns:
-                df_raw = pd.read_csv(file_path, header=1)
-                df_raw.columns = [str(c).strip() for c in df_raw.columns]
-
-            # VALIDAÇÃO: Rejeita CSVs que não têm as colunas obrigatórias
+            # VALIDAÇÃO: Rejeita Parquets que não têm as colunas obrigatórias
             colunas_obrigatorias = ['Código', 'Posto', 'Mês/Ano']
             if not all(col in df_raw.columns for col in colunas_obrigatorias):
                 print(f"  [SKIP] {file_path.name}: Colunas obrigatórias ausentes. Arquivo inválido.")
@@ -123,13 +118,25 @@ def executar_etl():
             })
 
             
-            # 1. Se a tabela ainda não existe, cria ela usando o DataFrame como molde 
+            # 1. Garante que o schema bronze existe
+            conn.execute("CREATE SCHEMA IF NOT EXISTS bronze")
+
+            # 2. Se a tabela ainda não existe, cria ela usando o DataFrame como molde
             if not tabela_criada:
-                conn.execute("CREATE TABLE IF NOT EXISTS monitoramento_pluviometrico AS SELECT * FROM df_to_db LIMIT 0")
+                conn.execute("CREATE TABLE IF NOT EXISTS bronze.monitoramento_pluviometrico AS SELECT * FROM df_to_db LIMIT 0")
                 tabela_criada = True
-            
-            # 2. Insere os dados.
-            conn.execute("INSERT INTO monitoramento_pluviometrico SELECT * FROM df_to_db")
+
+            # 3. Modo incremental: deleta dados do ano APENAS quando há novos dados confirmados
+            #    Garante que o delete só ocorre se o scraping gerou arquivo válido com linhas.
+            if ano_esperado is not None and len(df_to_db) > 0:
+                conn.execute(
+                    "DELETE FROM bronze.monitoramento_pluviometrico "
+                    f"WHERE EXTRACT(YEAR FROM data) = {ano_esperado}"
+                )
+                print(f"  [DEL] Dados de {ano_esperado} removidos do DuckDB antes da reinserção.")
+
+            # 4. Insere os dados.
+            conn.execute("INSERT INTO bronze.monitoramento_pluviometrico SELECT * FROM df_to_db")
 
             print(f"  [OK] Ingerido: {file_path.name} ({len(df_to_db)} linhas)")
 

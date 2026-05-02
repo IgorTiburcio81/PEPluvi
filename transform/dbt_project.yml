@@ -17,6 +17,8 @@ clean-targets:
 
 models:
   pepluvi:
+    bronze:
+      +schema: bronze
     silver:
       +materialized: table
     gold:

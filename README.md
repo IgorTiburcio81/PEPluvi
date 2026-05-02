@@ -14,7 +14,7 @@
 
 O **PEPluvi** coleta dados de precipitação dos **352 pluviômetros** da APAC, cobrindo todas as **5 mesorregiões** de Pernambuco, desde 1961 até hoje.
 
-O pipeline faz scraping do site da APAC via Selenium, valida a integridade dos CSVs, ingere os dados em um banco DuckDB local e é **orquestrado diariamente pelo Apache Airflow** (via Astro CLI).
+O pipeline faz scraping do site da APAC via Selenium, valida a integridade dos arquivos, ingere os dados em um banco DuckDB local e é **orquestrado diariamente pelo Apache Airflow** (via Astro CLI).
 
 ---
 
@@ -22,10 +22,10 @@ O pipeline faz scraping do site da APAC via Selenium, valida a integridade dos C
 
 | Etapa | Script | Descrição |
 |---|---|---|
-| **Scraping** | `include/pipeline/extract/scraping_apac.py` | Coleta automatizada do site da APAC via Selenium, por mesorregião e ano |
-| **Validação** | `include/pipeline/extract/valid_data.py` | Verifica se o ano no nome do CSV bate com o conteúdo interno |
-| **Ingestão** | `include/pipeline/load/ingest_duckdb.py` | Lê os CSVs, faz unpivot dia→linha e carrega no DuckDB |
-| **Orquestração** | `dags/pipeline_pepluvi.py` | DAG Airflow carga incremental diária (D-1) às 06h UTC |
+| **Scraping** | `include/pipeline/extract/scraping_apac.py` | Coleta automatizada do site da APAC via Selenium, por mesorregião e ano. Salva em **Parquet** |
+| **Validação** | `include/pipeline/extract/valid_data.py` | Verifica se o ano no nome do arquivo bate com o conteúdo interno |
+| **Ingestão** | `include/pipeline/load/ingest_duckdb.py` | Lê os Parquets, faz unpivot dia→linha e carrega no DuckDB (schema **bronze**) |
+| **Orquestração** | `dags/pipeline_pepluvi.py` | DAG Airflow com carga incremental diária (D-1) às 06h UTC |
 
 ---
 
@@ -34,12 +34,23 @@ O pipeline faz scraping do site da APAC via Selenium, valida a integridade dos C
 ```
 Airflow DAG (diária, 06h UTC)
 │
-├─ 1. limpa_csv          → Remove CSVs do ano corrente
-├─ 2. scraping            → Coleta dados atualizados da APAC
-├─ 3. validacao           → Valida integridade dos CSVs baixados
-├─ 4. limpeza_duckdb      → Remove registros do ano corrente no DuckDB
-└─ 5. ingestao_duckdb     → Re-ingere os dados limpos no DuckDB
+├─ 1. limpa_parquet      → Remove Parquets do ano corrente (permite re-scraping)
+├─ 2. scraping           → Coleta dados atualizados da APAC e salva como Parquet
+├─ 3. validacao          → Valida integridade dos Parquets baixados
+└─ 4. ingestao_duckdb    → Delete do ano + re-ingestão no DuckDB (atômico)
 ```
+
+> O delete do DuckDB é feito **dentro da ingestão**, somente quando há novos dados confirmados. Se o scraping falhar, os dados anteriores no banco são preservados.
+
+---
+
+## Camada de dados (Medallion)
+
+| Camada | Localização | Formato | Descrição |
+|---|---|---|---|
+| **Raw** | `include/data/raw/` | `.parquet` | Dados brutos da APAC, 1 arquivo por mesorregião/ano |
+| **Bronze** | `include/data/pepluvi.duckdb` → `bronze.monitoramento_pluviometrico` | DuckDB | Dados limpos em formato long (1 linha por posto/dia) |
+| **Silver / Gold** | `transform/` | dbt | Em desenvolvimento |
 
 ---
 
@@ -82,10 +93,10 @@ astro dev start
 ### Execução manual (sem Airflow)
 
 ```bash
-# 1. Coletar dados da APAC
+# 1. Coletar dados da APAC (salva Parquets em include/data/raw/)
 make extract
 
-# 2. Validar os CSVs
+# 2. Validar os Parquets
 python include/pipeline/extract/valid_data.py
 
 # 3. Ingerir no DuckDB (carga completa)
@@ -95,13 +106,13 @@ make load
 python include/pipeline/load/ingest_duckdb.py 2026
 ```
 
-> ⚠️ A carga histórica completa (1961 → hoje, todas as mesorregiões) leva várias horas. O scraper salva um CSV por ano/mesorregião em `include/data/raw/`, então se cair, basta rodar de novo, os já coletados são pulados.
+> ⚠️ A carga histórica completa (1961 → hoje, todas as mesorregiões) leva várias horas. O scraper salva um Parquet por ano/mesorregião em `include/data/raw/`, então se cair, basta rodar de novo — os já coletados são pulados automaticamente.
 
 ### Execução orquestrada (Airflow)
 
 Após subir o Airflow com `astro dev start`, a DAG `pipeline_pepluvi` roda automaticamente todos os dias às **06h UTC**, executando a carga incremental do ano corrente.
 
-O banco é criado/atualizado em `include/data/pepluvi.duckdb`.
+O banco é criado/atualizado em `include/data/pepluvi.duckdb` no schema `bronze`.
 
 ---
 
@@ -113,25 +124,25 @@ PEPluvi/
 │   └── pipeline_pepluvi.py       # DAG Airflow (carga incremental diária)
 ├── docs/                         # ADRs e Runbook
 ├── include/
-│   ├── config/                   # constantes (settings.py)
+│   ├── config/
+│   │   └── settings.py           # constantes de caminho e URL
 │   ├── data/                     # ⚠️ NÃO versionado (.gitignore)
-│   │   ├── raw/                  # CSVs brutos por mesorregião/ano
-│   │   └── pepluvi.duckdb        # banco OLAP local
+│   │   ├── raw/                  # Parquets brutos por mesorregião/ano
+│   │   └── pepluvi.duckdb        # banco OLAP local (schema: bronze)
 │   └── pipeline/
 │       ├── extract/
-│       │   ├── scraping_apac.py  # scraper Selenium
-│       │   └── valid_data.py     # validação dos CSVs
+│       │   ├── scraping_apac.py  # scraper Selenium → salva Parquet
+│       │   └── valid_data.py     # validação dos arquivos
 │       └── load/
-│           └── ingest_duckdb.py  # ETL CSVs → DuckDB
+│           └── ingest_duckdb.py  # ETL Parquet → DuckDB bronze
 ├── transform/                    # modelagem dbt (Silver → Gold)
 ├── Makefile                      # atalhos de execução
 ├── pyproject.toml                # dependências e linting (Ruff)
 ├── Dockerfile                    # imagem customizada (Chrome p/ Selenium)
 ├── airflow_settings.yaml         # configuração local do Airflow
 ├── packages.txt                  # pacotes apt do container Astro
-├── .dockerignore
+├── requirements.txt              # dependências Python (inclui pyarrow)
 ├── .gitignore
-├── requirements.txt
 └── README.md
 ```
 
@@ -149,6 +160,7 @@ PEPluvi/
 
 - [APAC — Monitoramento Pluviométrico](http://old.apac.pe.gov.br/meteorologia/monitoramento-pluvio.php)
 - [DuckDB](https://duckdb.org)
+- [Apache Parquet](https://parquet.apache.org/)
 - [Selenium](https://www.selenium.dev/documentation/)
 - [Astronomer (Astro CLI)](https://www.astronomer.io/docs/astro/cli/overview)
 - [Apache Airflow](https://airflow.apache.org/docs/)

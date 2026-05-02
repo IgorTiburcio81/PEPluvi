@@ -245,8 +245,8 @@ def main():
             scraper.selecionar_mesorregiao(cod_id)
 
             for ano in range(ano_inicio, ano_fim + 1):
-                arquivo_csv = OUTPUT_DIR / f"{nome_meso}_{ano}.csv"
-                if arquivo_csv.exists():
+                arquivo_parquet = OUTPUT_DIR / f"{nome_meso}_{ano}.parquet"
+                if arquivo_parquet.exists():
                     continue
 
                 d_ini = f"01/01/{ano}"
@@ -262,7 +262,7 @@ def main():
                     if not df.empty:
                         df["mesorregiao_id"] = cod_id
                         df["ano_ref"] = ano
-                        df.to_csv(arquivo_csv, index=False, encoding="utf-8-sig")
+                        df.to_parquet(arquivo_parquet, index=False)
                         log.info(f"  [OK] {ano}: {len(df)} registros salvos.")
                     else:
                         log.warning(f"  [!] {ano}: Sem dados válidos para este ano.")
