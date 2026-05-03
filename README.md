@@ -126,7 +126,7 @@ make load
 python include/pipeline/load/ingest_duckdb.py 2026
 ```
 
-> ⚠️ A carga histórica completa (1961 → hoje, todas as mesorregiões) leva várias horas. O scraper salva um Parquet por ano/mesorregião em `include/data/raw/`, então se cair, basta rodar de novo — os já coletados são pulados automaticamente.
+> A carga histórica completa (1961 → hoje, todas as mesorregiões) leva várias horas. O scraper salva um Parquet por ano/mesorregião em `include/data/raw/`, então se cair, basta rodar de novo — os já coletados são pulados automaticamente.
 
 ### Execução orquestrada (Airflow)
 
@@ -147,7 +147,7 @@ PEPluvi/
 ├── include/
 │   ├── config/
 │   │   └── settings.py           # constantes de caminho e URL
-│   ├── data/                     # ⚠️ NÃO versionado (.gitignore)
+│   ├── data/                     # NÃO versionado (.gitignore)
 │   │   ├── raw/                  # Parquets brutos por mesorregião/ano e api_cemaden
 │   │   └── pepluvi.duckdb        # banco OLAP local (schema: bronze)
 │   └── pipeline/
