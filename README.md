@@ -1,6 +1,6 @@
 # 🌧️ PEPluvi
 
-> Pipeline de dados pluviométricos de Pernambuco — histórico desde 1961.  
+> Pipeline de dados pluviométricos de Pernambuco — histórico (APAC) e tempo real (CEMADEN).  
 > Fonte: [APAC — Agência Pernambucana de Águas e Clima](https://www.apac.pe.gov.br)
 
 ![Status](https://img.shields.io/badge/status-em%20desenvolvimento-yellow)
@@ -12,35 +12,43 @@
 
 ## Sobre o projeto
 
-O **PEPluvi** coleta dados de precipitação dos **352 pluviômetros** da APAC, cobrindo todas as **5 mesorregiões** de Pernambuco, desde 1961 até hoje.
+O **PEPluvi** coleta dados de precipitação dos pluviômetros de Pernambuco, integrando dados históricos desde 1961 e monitoramento em tempo real (atualizado a cada 15 minutos).
 
-O pipeline faz scraping do site da APAC via Selenium, valida a integridade dos arquivos, ingere os dados em um banco DuckDB local e é **orquestrado diariamente pelo Apache Airflow** (via Astro CLI).
+O pipeline utiliza Selenium para scraping histórico e Requests para consumo de APIs, validando a integridade dos arquivos Parquet e disponibilizando-os via DuckDB em uma arquitetura de medalhão.
 
 ---
 
 ## O que já funciona
 
-| Etapa | Script | Descrição |
+| Etapa | Fluxo | Descrição |
 |---|---|---|
-| **Scraping** | `include/pipeline/extract/scraping_apac.py` | Coleta automatizada do site da APAC via Selenium, por mesorregião e ano. Salva em **Parquet** |
-| **Validação** | `include/pipeline/extract/valid_data.py` | Verifica se o ano no nome do arquivo bate com o conteúdo interno |
-| **Ingestão** | `include/pipeline/load/ingest_duckdb.py` | Lê os Parquets, faz unpivot dia→linha e carrega no DuckDB (schema **bronze**) |
-| **Orquestração** | `dags/pipeline_pepluvi.py` | DAG Airflow com carga incremental diária (D-1) às 06h UTC |
+| **Scraping Histórico** | `scraping_apac.py` | Coleta automatizada (Selenium) por mesorregião/ano. Salva em **Parquet**. |
+| **API Real-time** | `dados_15min_apac.py` | Coleta dados CEMADEN a cada 15 min. Salva em **Parquet (Hive)**. |
+| **Ingestão IBGE** | `ingest_muni_ibge.py` | Carga de metadados geográficos dos municípios. |
+| **Ingestão Bronze** | `ingest_duckdb.py` | Carga física dos dados históricos no DuckDB. |
+| **View Bronze** | `update_bronze_view` | Cria **VIEW dinâmica** para dados CEMADEN (sem duplicação). |
+| **Orquestração** | Airflow | DAGs para carga diária (APAC) e a cada 15 min (CEMADEN). |
 
 ---
 
 ## Arquitetura do pipeline
 
+### 1. Dados Históricos (APAC)
 ```
-Airflow DAG (diária, 06h UTC)
+Airflow DAG (diária)
 │
-├─ 1. limpa_parquet      → Remove Parquets do ano corrente (permite re-scraping)
-├─ 2. scraping           → Coleta dados atualizados da APAC e salva como Parquet
-├─ 3. validacao          → Valida integridade dos Parquets baixados
-└─ 4. ingestao_duckdb    → Delete do ano + re-ingestão no DuckDB (atômico)
+├─ 1. scraping           → Salva Parquet por ano/mesorregião
+├─ 2. validacao          → Verifica integridade dos arquivos
+└─ 3. ingestao_duckdb    → Carga atômica na tabela bronze.monitoramento_pluviometrico
 ```
 
-> O delete do DuckDB é feito **dentro da ingestão**, somente quando há novos dados confirmados. Se o scraping falhar, os dados anteriores no banco são preservados.
+### 2. Dados Real-time (CEMADEN)
+```
+Airflow DAG (15 em 15 min)
+│
+├─ 1. extrair_salvar_raw → Salva Parquet na Raw com partição Hive (ano/mes/dia)
+└─ 2. atualizar_view     → Atualiza VIEW bronze.apac_15min_bronze (Zero Copy)
+```
 
 ---
 
@@ -48,9 +56,10 @@ Airflow DAG (diária, 06h UTC)
 
 | Camada | Localização | Formato | Descrição |
 |---|---|---|---|
-| **Raw** | `include/data/raw/` | `.parquet` | Dados brutos da APAC, 1 arquivo por mesorregião/ano |
-| **Bronze** | `include/data/pepluvi.duckdb` → `bronze.monitoramento_pluviometrico` | DuckDB | Dados limpos em formato long (1 linha por posto/dia) |
-| **Silver / Gold** | `transform/` | dbt | Em desenvolvimento |
+| **Raw (APAC)** | `include/data/raw/*.parquet` | Parquet | Arquivos brutos por ano/região. |
+| **Raw (API)** | `include/data/raw/api_cemaden/` | Parquet | Particionamento Hive: `ano=Y/mes=M/dia=D/`. |
+| **Bronze (Hist)** | `bronze.monitoramento_pluviometrico` | DuckDB Table | Dados históricos carregados fisicamente. |
+| **Bronze (15min)**| `bronze.apac_15min_bronze` | DuckDB **View** | View dinâmica sobre os arquivos Parquet da Raw. |
 
 ---
 
@@ -59,18 +68,18 @@ Airflow DAG (diária, 06h UTC)
 ### Pré-requisitos
 
 - Python 3.11+
-- [Astro CLI](https://www.astronomer.io/docs/astro/cli/install-cli) (para rodar o Airflow localmente)
-- Docker (necessário pelo Astro CLI)
-- Google Chrome (para o Selenium no scraping)
+- [Astro CLI](https://www.astronomer.io/docs/astro/cli/install-cli) (para Airflow local)
+- Docker
+- Google Chrome (para o Selenium no scraping histórico)
 
 ### Instalação
 
 ```bash
-# Clone o repositório
+# Clone e entre no projeto
 git clone https://github.com/IgorTiburcio81/PEPluvi.git
 cd PEPluvi
 
-# Crie o ambiente virtual e instale as dependências
+# Setup do ambiente
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
@@ -89,6 +98,17 @@ astro dev start
 ---
 
 ## Como usar
+
+### Consultando a Camada Bronze (DuckDB)
+O DuckDB permite consultar os Parquets da Raw e as tabelas da Bronze de forma unificada:
+
+```sql
+-- Consultar dados de 15 minutos (View dinâmica)
+SELECT * FROM bronze.apac_15min_bronze LIMIT 10;
+
+-- Consultar dados históricos
+SELECT * FROM bronze.monitoramento_pluviometrico WHERE ano = 2024;
+```
 
 ### Execução manual (sem Airflow)
 
@@ -121,17 +141,20 @@ O banco é criado/atualizado em `include/data/pepluvi.duckdb` no schema `bronze`
 ```
 PEPluvi/
 ├── dags/
-│   └── pipeline_pepluvi.py       # DAG Airflow (carga incremental diária)
+│   ├── pipeline_pepluvi.py       # DAG Airflow (carga incremental diária)
+│   └── pipeline_15min_apac.py    # DAG Real-time (15 min)
 ├── docs/                         # ADRs e Runbook
 ├── include/
 │   ├── config/
 │   │   └── settings.py           # constantes de caminho e URL
 │   ├── data/                     # ⚠️ NÃO versionado (.gitignore)
-│   │   ├── raw/                  # Parquets brutos por mesorregião/ano
+│   │   ├── raw/                  # Parquets brutos por mesorregião/ano e api_cemaden
 │   │   └── pepluvi.duckdb        # banco OLAP local (schema: bronze)
 │   └── pipeline/
 │       ├── extract/
 │       │   ├── scraping_apac.py  # scraper Selenium → salva Parquet
+│       │   ├── dados_15min_apac.py # API CEMADEN → salva Parquet Hive
+│       │   ├── ingest_muni_ibge.py # API IBGE → DuckDB
 │       │   └── valid_data.py     # validação dos arquivos
 │       └── load/
 │           └── ingest_duckdb.py  # ETL Parquet → DuckDB bronze
@@ -159,7 +182,7 @@ PEPluvi/
 ## Referências
 
 - [APAC — Monitoramento Pluviométrico](http://old.apac.pe.gov.br/meteorologia/monitoramento-pluvio.php)
-- [DuckDB](https://duckdb.org)
+- [DuckDB - Parquet & Hive Partitioning](https://duckdb.org/docs/data/parquet/hive_partitioning)
 - [Apache Parquet](https://parquet.apache.org/)
 - [Selenium](https://www.selenium.dev/documentation/)
 - [Astronomer (Astro CLI)](https://www.astronomer.io/docs/astro/cli/overview)

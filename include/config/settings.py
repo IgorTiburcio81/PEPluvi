@@ -11,6 +11,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # Diretórios de Dados
 DATA_DIR = PROJECT_ROOT / "data"
 RAW_DIR = DATA_DIR / "raw"
+CEMADEN_DIR = RAW_DIR / "api_cemaden"
 
 # Caminho do Banco de Dados
 DB_PATH = str(DATA_DIR / "pepluvi.duckdb")

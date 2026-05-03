@@ -43,3 +43,11 @@ include/pipeline/extract/scraper.log
 # dbt
 target/
 dbt_packages/
+
+# Dados locais (segurança extra)
+*.parquet
+
+# DuckDB local e temporários
+*.duckdb
+*.duckdb.wal
+*.tmp/
