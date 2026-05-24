@@ -52,3 +52,6 @@ transform/logs/
 *.duckdb
 *.duckdb.wal
 *.tmp/
+
+# Documentação local (ADRs, Runbooks — não versionado)
+docs/

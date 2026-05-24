@@ -1,0 +1,127 @@
+version: 2
+
+models:
+  - name: agregados_anuais
+    description: >
+      Agregados anuais de precipitação por estação. Inclui total anual,
+      média histórica, desvio, percentil e classificação do ano (Seco / Normal / Chuvoso).
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - codigo_estacao
+            - ano
+    columns:
+      - name: codigo_estacao
+        tests:
+          - not_null
+      - name: ano
+        tests:
+          - not_null
+      - name: nome_estacao
+        tests:
+          - not_null
+      - name: municipio
+        tests:
+          - not_null
+      - name: mesorregiao
+        tests:
+          - not_null
+          - accepted_values:
+              values:
+                - 'Metropolitana de Recife'
+                - 'Zona da Mata'
+                - 'Agreste'
+                - 'Sertão do São Francisco'
+                - 'Sertão'
+      - name: total_anual_mm
+        tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: percentil_anual
+        tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 100
+      - name: classificacao_ano
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Ano Seco', 'Ano Normal', 'Ano Chuvoso']
+
+  - name: ranking_eventos_extremos
+    description: >
+      Ranking de eventos extremos de precipitação diária por estação e mesorregião.
+      Inclui apenas dias com chuva registrada (precipitacao_mm > 0).
+    columns:
+      - name: codigo_estacao
+        tests:
+          - not_null
+      - name: data
+        tests:
+          - not_null
+      - name: precipitacao_mm
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                inclusive: false
+      - name: percentil_estacao
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 100
+      - name: mesorregiao
+        tests:
+          - not_null
+          - accepted_values:
+              values:
+                - 'Metropolitana de Recife'
+                - 'Zona da Mata'
+                - 'Agreste'
+                - 'Sertão do São Francisco'
+                - 'Sertão'
+      - name: severidade
+        tests:
+          - not_null
+          - accepted_values:
+              values:
+                - 'Evento Histórico (top 1%)'
+                - 'Muito Extremo (top 5%)'
+                - 'Extremo (top 10%)'
+                - 'Severo (top 25%)'
+                - 'Significativo'
+
+  - name: comparativo_sazonal
+    description: >
+      VIEW que compara precipitação mensal do ano corrente com a média dos
+      últimos 5 anos por mesorregião. Recalculada a cada execução com CURRENT_DATE.
+    columns:
+      - name: mes
+        tests:
+          - not_null
+      - name: mesorregiao
+        tests:
+          - not_null
+          - accepted_values:
+              values:
+                - 'Metropolitana de Recife'
+                - 'Zona da Mata'
+                - 'Agreste'
+                - 'Sertão do São Francisco'
+                - 'Sertão'
+      - name: status_sazonal
+        tests:
+          - not_null
+          - accepted_values:
+              values:
+                - 'Sem dados'
+                - 'Acima do máximo histórico'
+                - 'Abaixo do mínimo histórico'
+                - 'Acima da média'
+                - 'Abaixo da média'
+                - 'Dentro da normalidade'
