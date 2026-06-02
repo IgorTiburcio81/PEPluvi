@@ -28,7 +28,7 @@ O pipeline utiliza Selenium para scraping histórico e Requests para consumo de 
 | **Ingestão Bronze** | `ingest_duckdb.py` | Carga física dos dados históricos no DuckDB. |
 | **View Bronze** | `update_bronze_view` | Cria **VIEW dinâmica** para dados CEMADEN (sem duplicação). |
 | **Transformação Silver** | `dbt run --select silver` | Deduplicação de estações, join IBGE, enriquecimento espacial e métricas sazonais. |
-| **Transformação Gold** | `dbt run --select gold` | KPIs anuais, ranking de eventos extremos e comparativo sazonal. |
+| **Transformação Gold** | `dbt run --select gold` | KPIs anuais, ranking de eventos extremos, comparativo sazonal e perfil de qualidade por estação. |
 | **Qualidade de Dados** | `dbt test` | Testes de integridade nas chaves compostas, nulls, ranges e valores aceitos. |
 | **Orquestração** | Airflow | DAG diária (APAC) e a cada 15 min (CEMADEN), incluindo `dbt run/test` Silver e Gold. |
 
@@ -73,6 +73,7 @@ Airflow DAG (15 em 15 min)
 | **Gold** | `gold.agregados_anuais` | DuckDB Table | Total anual, média histórica, desvio e classificação do ano (Seco/Normal/Chuvoso). |
 | **Gold** | `gold.ranking_eventos_extremos` | DuckDB Table | Eventos diários classificados por percentil e severidade por estação e mesorregião. |
 | **Gold** | `gold.comparativo_sazonal` | DuckDB View | Comparativo mensal: ano corrente vs média dos últimos 5 anos, por mesorregião. |
+| **Gold** | `gold.qualidade_estacoes` | DuckDB Table | Perfil de qualidade por estação: score de confiança, % preenchimento, % nulos e categoria (`alta`/`media`/`baixa`). |
 
 ---
 
@@ -210,6 +211,7 @@ PEPluvi/
 │           ├── agregados_anuais.sql
 │           ├── ranking_eventos_extremos.sql
 │           ├── comparativo_sazonal.sql
+│           ├── qualidade_estacoes.sql  # perfil de confiabilidade por estação
 │           └── schema.yml        # testes Gold
 ├── Makefile                      # atalhos de execução
 ├── pyproject.toml                # dependências e linting (Ruff)
